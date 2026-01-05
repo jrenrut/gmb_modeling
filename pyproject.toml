@@ -1,0 +1,32 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "gmb_modeling"
+version = "0.0.1"
+description = "Exploring dynamic downscaling of climate models and correlating regional snow variables with winter alpine snowpack and glacier mass balance."
+authors = [
+  { name = "Jeremy Turner" },
+]
+
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    
+]
+requires-python = "~=3.10.0"
+
+
+[tool.ruff]
+line-length = 99
+src = ["gmb_modeling"]
+include = ["pyproject.toml", "gmb_modeling/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["I"]  # Add import sorting
+
+[tool.ruff.lint.isort]
+known-first-party = ["gmb_modeling"]
+force-sort-within-sections = true
+
