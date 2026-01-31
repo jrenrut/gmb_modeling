@@ -6,4 +6,14 @@ python-dotenv
 ruff
 tqdm
 typer
+xarray
+numpy
+pandas
+scikit-learn
+matplotlib
+geopandas
+shapely>=2.0.5
+plotly
+netCDF4
+dask
 -e .

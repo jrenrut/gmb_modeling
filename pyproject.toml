@@ -15,11 +15,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     
 ]
-requires-python = "~=3.10.0"
+requires-python = ">=3.10,<3.13"
 
 
 [tool.ruff]
-line-length = 99
+line-length = 89
 src = ["gmb_modeling"]
 include = ["pyproject.toml", "gmb_modeling/**/*.py"]
 
