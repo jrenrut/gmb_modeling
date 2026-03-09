@@ -1,0 +1,10 @@
+{
+    "name": "all-BC_2016-cutoff",
+    "months": [],
+    "region_ids": [],
+    "start_month": "1980-01",
+    "end_month": "2022-12",
+    "cutoff_month": "2016-01",
+    "smoothing_window_size": 3,
+    "run_dataset": true
+}

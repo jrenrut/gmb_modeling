@@ -189,3 +189,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# VS Code workspace settings
+gmb_modeling.code-workspace
+
+# Ignore runtime model and report outputs
+gmb_modeling/models/
+gmb_modeling/reports/

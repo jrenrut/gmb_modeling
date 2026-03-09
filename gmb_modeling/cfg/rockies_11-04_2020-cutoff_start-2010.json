@@ -1,0 +1,11 @@
+{
+    "name": "rockies_11-04_2020-cutoff_start-2010",
+    "months": [11, 12, 1, 2, 3, 4],
+    "region_ids": ["NRM", "CRM", "SRM", "SIR"],
+    "start_month": "2010-01",
+    "end_month": "2022-12",
+    "cutoff_month": "2020-01",
+    "smoothing_window_size": 3,
+    "pca_min_var": 0.95,
+    "run_dataset": false
+}
