@@ -196,3 +196,4 @@ gmb_modeling.code-workspace
 # Ignore runtime model and report outputs
 gmb_modeling/models/
 gmb_modeling/reports/
+gmb_modeling/cfg/
