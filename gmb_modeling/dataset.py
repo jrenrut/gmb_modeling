@@ -16,7 +16,6 @@ from gmb_modeling.config import (
     EXTERNAL_DATA_DIR,
     INTERIM_DATA_DIR,
     PROCESSED_DATA_DIR,
-    RAW_DATA_DIR,
 )
 
 app = typer.Typer()
@@ -126,7 +125,7 @@ def clean_monthly_gmb_data(
     rgi_ids = df["Unnamed: 0"]
     rgi_lats, rgi_lons = [], []
     rgi_areas, rgi_zmins, rgi_zmaxs, rgi_zmeds = [], [], [], []
-    rgi_slopes, rgi_apsects, rgi_lmaxs = [], [], []
+    rgi_slopes, rgi_aspects, rgi_lmaxs = [], [], []
     rgi_statuses, rgi_terms, rgi_surges, rgi_names = [], [], [], []
     for rgi_id in tqdm(rgi_ids, desc="Loading RGI data"):
         rgi_glacier = rgi[
@@ -142,7 +141,7 @@ def clean_monthly_gmb_data(
             rgi_zmaxs.append(rgi_glacier["Zmax"].values[0])
             rgi_zmeds.append(rgi_glacier["Zmed"].values[0])
             rgi_slopes.append(rgi_glacier["Slope"].values[0])
-            rgi_apsects.append(rgi_glacier["Aspect"].values[0])
+            rgi_aspects.append(rgi_glacier["Aspect"].values[0])
             rgi_lmaxs.append(rgi_glacier["Lmax"].values[0])
             rgi_statuses.append(rgi_glacier["Status"].values[0])
             rgi_terms.append(rgi_glacier["TermType"].values[0])
@@ -167,7 +166,7 @@ def clean_monthly_gmb_data(
         zmax=("rgi_id", rgi_zmaxs),
         zmed=("rgi_id", rgi_zmeds),
         slope=("rgi_id", rgi_slopes),
-        apsect=("rgi_id", rgi_apsects),
+        aspect=("rgi_id", rgi_aspects),
         lmax=("rgi_id", rgi_lmaxs),
         status=("rgi_id", rgi_statuses),
         term=("rgi_id", rgi_terms),
@@ -237,55 +236,57 @@ def clean_monthly_gmb_data(
     return outfile
 
 
-def clean_monthly_sd_data(
+def clean_monthly_gcm_data(
     data_path: Path,
     start_month: pd.Timestamp,
     end_month: pd.Timestamp,
-    region_ids: Optional[list[str]] = None,
-    outfile_name: str = "monthly_sd_clean.nc",
+    outfile_name: str = "monthly_gcm_clean.nc",
 ) -> Path:
-    """Process and clean monthly snow depth data
+    """Process and clean monthly GCM data
 
-    :param data_path: Path to the raw monthly snow depth NetCDF data files
+    :param data_path: Path to the raw monthly GCM NetCDF data files
     :type data_path: pathlib.Path
     :param start_month: The starting month for the data range (inclusive)
     :type start_month: pandas.Timestamp
     :param end_month: The ending month for the data range (inclusive)
     :type end_month: pandas.Timestamp
-    :param region_ids: Optional list of region IDs to filter the data by (if None, includes all regions)
-    :type region_ids: list[str], optional
-    :param outfile_name: The name of the output file, defaults to "monthly_sd_clean.nc"
+    :param outfile_name: The name of the output file, defaults to "monthly_gcm_clean.nc"
     :type outfile_name: str, optional
     :return: The path to the cleaned NetCDF file
     :rtype: pathlib.Path
     """
-    logger.info("Loading monthly SD data...")
-    # read in all the NetCDF files in the data path and concatenate them into a single xarray Dataset, filling any NaN values with 0
-    sd_files = list(data_path.glob("MERRA2_*.nc4*"))
-    with xr.open_mfdataset(sd_files, combine="by_coords") as _sd_xr:
-        sd_xr = _sd_xr.load().fillna(0.0)
+    logger.info("Loading monthly GCM data...")
+    # check if data_path is a specific .nc file to load in directly, otherwise read in all the NetCDF files in the data path and concatenate them into a single xarray Dataset, filling any NaN values with 0
+    if data_path.is_file() and data_path.suffix in [".nc", ".nc4"]:
+        with xr.open_dataset(data_path) as _gcm_xr:
+            gcm_xr = _gcm_xr.load().fillna(0.0)
+    else:
+        # read in all the NetCDF files in the data path and concatenate them into a single xarray Dataset, filling any NaN values with 0
+        gcm_files = list(data_path.glob("GCM_*.nc4*"))
+        with xr.open_mfdataset(gcm_files, combine="by_coords") as _gcm_xr:
+            gcm_xr = _gcm_xr.load().fillna(0.0)
 
-    logger.info("Cropping SD data to specified time range...")
+    logger.info("Cropping GCM data to specified time range...")
     # convert time coordinate to datetime and filter to the specified time range
-    sd_time = sd_xr["time"].to_numpy().astype("datetime64[M]")
-    sd_time_mask = (sd_time >= np.datetime64(start_month)) & (
-        sd_time <= np.datetime64(end_month)
+    gcm_time = gcm_xr["time"].to_numpy().astype("datetime64[M]")
+    gcm_time_mask = (gcm_time >= np.datetime64(start_month)) & (
+        gcm_time <= np.datetime64(end_month)
     )
-    sd_xr_cropped = sd_xr.sel(time=sd_time_mask)
+    gcm_xr_cropped = gcm_xr.sel(time=gcm_time_mask)
 
     # make a new coordinate for the bc region if the grid points fall within bc
-    logger.info("Assigning BC region mask to SD data...")
+    logger.info("Assigning BC region mask to GCM data...")
     bc_regions = load_regions()
     # for each grid point, check if it falls within any of the bc regions, and use the region with the most area overlap
-    lons = sd_xr_cropped["lon"].values
-    lats = sd_xr_cropped["lat"].values
+    lons = gcm_xr_cropped["lon"].values
+    lats = gcm_xr_cropped["lat"].values
     region_name_mask = np.full((len(lons), len(lats)), "Unknown", dtype=object)
     region_id_mask = np.full((len(lons), len(lats)), -1)
     total_pts = len(lons) * len(lats)
     for i, j in tqdm(
         product(range(len(lons)), range(len(lats))),
         total=total_pts,
-        desc="Assigning region mask to SD data",
+        desc="Assigning region mask to GCM data",
     ):
         point = gpd.points_from_xy(
             [lons[i]], [lats[j]]
@@ -297,14 +298,14 @@ def clean_monthly_sd_data(
             region_id_mask[i, j] = joined.iloc[0]["id"]
             region_name_mask[i, j] = joined.iloc[0]["name"]
 
-    sd_xr_cropped = sd_xr_cropped.assign_coords(
+    gcm_xr_cropped = gcm_xr_cropped.assign_coords(
         region_name=(("lon", "lat"), region_name_mask),
         region_id=(("lon", "lat"), region_id_mask),
     )  # add the region names and IDs as new coordinates in the dataset
 
-    outfile = INTERIM_DATA_DIR / "sd_data" / outfile_name
-    sd_xr_cropped.to_netcdf(outfile, format="NETCDF4")
-    logger.info(f"Cleaned monthly SD data saved to {outfile}.")
+    outfile = INTERIM_DATA_DIR / "gcm_data" / outfile_name
+    gcm_xr_cropped.to_netcdf(outfile, format="NETCDF4")
+    logger.info(f"Cleaned monthly GCM data saved to {outfile}.")
 
     return outfile
 
@@ -393,7 +394,7 @@ def smooth_gmb_data(
     return smoothed_data
 
 
-def smooth_sd_data(
+def smooth_gcm_data(
     data: xr.DataArray,
     window_size: int = 3,
 ) -> xr.DataArray:
@@ -406,7 +407,7 @@ def smooth_sd_data(
     :return: The smoothed dataset, with the same coordinates as the input dataset
     :rtype: xarray.DataArray
     """
-    logger.info(f"Smoothing SD data with window size {window_size}...")
+    logger.info(f"Smoothing GCM data with window size {window_size}...")
     smoothed_data = np.empty_like(data.values)
     lons = data["lon"].values
     lats = data["lat"].values
@@ -469,14 +470,14 @@ def get_gmb_region(
     return region_ds
 
 
-def get_sd_region(
+def get_gcm_region(
     ds: xr.Dataset, region_ids: Optional[Union[int, str, list]] = None
 ) -> xr.Dataset:
-    """Get subset of snow depth data for specific BC mountain region
+    """Get subset of GCM data for specific BC mountain region
 
     Can specify region by either region name or region ID, or a list of names or IDs for multiple regions. If no region is specified, returns the full dataset.
 
-    :param ds: The input snow depth dataset with a region_id and region_name coordinate, to filter for the specified region IDs
+    :param ds: The input GCM dataset with a region_id and region_name coordinate, to filter for the specified region IDs
     :type ds: xarray.Dataset
     :param region_ids: The region IDs to filter for, defaults to None
     :type region_ids: Optional[Union[int, str, list]], optional
@@ -485,7 +486,7 @@ def get_sd_region(
     """
     if region_ids is None:
         return ds
-    logger.debug(f"Filtering SD data for region IDs {region_ids}...")
+    logger.debug(f"Filtering GCM data for region IDs {region_ids}...")
     if isinstance(region_ids, list):
         if isinstance(region_ids[0], str):
             mask = ds["region_name"].isin(region_ids)
@@ -515,10 +516,10 @@ def get_sd_region(
     return region_ds
 
 
-def get_sd_gridpoint(ds: xr.Dataset, lat: float, lon: float) -> xr.Dataset:
-    """Get snow depth data for a specific grid point based on its longitude and latitude coordinates, using nearest neighbor selection to find the closest grid point to the specified coordinates
+def get_gcm_gridpoint(ds: xr.Dataset, lat: float, lon: float) -> xr.Dataset:
+    """Get GCM data for a specific grid point based on its longitude and latitude coordinates, using nearest neighbor selection to find the closest grid point to the specified coordinates
 
-    :param ds: The input snow depth dataset with longitude and latitude coordinates, to filter for the specified grid point
+    :param ds: The input GCM dataset with longitude and latitude coordinates, to filter for the specified grid point
     :type ds: xarray.Dataset
     :param lat: The latitude coordinate of the grid point
     :type lat: float
@@ -527,7 +528,7 @@ def get_sd_gridpoint(ds: xr.Dataset, lat: float, lon: float) -> xr.Dataset:
     :return: The filtered dataset for the specified grid point
     :rtype: xarray.Dataset
     """
-    logger.debug(f"Filtering SD data for grid point at ({lat}, {lon})...")
+    logger.debug(f"Filtering GCM data for grid point at ({lat}, {lon})...")
     point_ds = ds.sel(lon=lon, lat=lat, method="nearest")
     return point_ds
 
@@ -568,9 +569,8 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     start_month = pd.Timestamp(cfg["start_month"])
     end_month = pd.Timestamp(cfg["end_month"])
     cutoff_month = pd.Timestamp(cfg["cutoff_month"])
-    region_ids = cfg.get("region_ids", None)
 
-    gmb_data_path = RAW_DATA_DIR / "gmb_data" / "ts_monthly_const_area_lstm.csv"
+    gmb_data_path = Path(cfg["gmb_data_path"])  # type: ignore
     cfg["gmb_data_path"] = (
         gmb_data_path.as_posix()
     )  # save the raw data path to the config for reference
@@ -581,38 +581,43 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         gmb_interim.as_posix()
     )  # save the interim data path to the config for reference
 
-    sd_data_path = RAW_DATA_DIR / "merra_sd_land_data"
-    cfg["sd_data_path"] = (
-        sd_data_path.as_posix()
+    gcm_data_path = Path(cfg["gcm_data_path"])  # type: ignore
+    cfg["gcm_data_path"] = (
+        gcm_data_path.as_posix()
     )  # save the raw data path to the config for reference
-    sd_interim = clean_monthly_sd_data(
-        sd_data_path, start_month, end_month
-    )  # process the raw snow depth data and save the cleaned interim dataset, and save the path to the interim dataset in the config for reference
-    cfg["sd_interim"] = (
-        sd_interim.as_posix()
+    gcm_interim = clean_monthly_gcm_data(
+        gcm_data_path, start_month, end_month
+    )  # process the raw GCM data and save the cleaned interim dataset, and save the path to the interim dataset in the config for reference
+    cfg["gcm_interim"] = (
+        gcm_interim.as_posix()
     )  # save the interim data path to the config for reference
 
     with xr.open_dataset(gmb_interim) as _gmb:
         gmb_data = _gmb.load()
-    with xr.open_dataset(sd_interim) as _sd:
-        sd_data = _sd.load()
+    with xr.open_dataset(gcm_interim) as _gcm:
+        gcm_data = _gcm.load()
 
     # split the datasets into train and test based on the cutoff month
     cutoff_month = pd.Timestamp("2016-01")
     gmb_train_orig, gmb_test_orig = split_data_by_month(
         gmb_data["monthly_gmb"], cutoff_month
     )
-    sd_train_orig, sd_test_orig = split_data_by_month(sd_data["SNODP"], cutoff_month)
+    gcm_variable = str(
+        cfg.get("gcm_variable")
+    )  # get the GCM variable to use from the config
+    gcm_train_orig, gcm_test_orig = split_data_by_month(
+        gcm_data[gcm_variable], cutoff_month
+    )
 
     # calculate the monthly mean for the train datasets
     gmb_train_mean = get_monthly_mean(gmb_train_orig)
-    sd_train_mean = get_monthly_mean(sd_train_orig)
+    gcm_train_mean = get_monthly_mean(gcm_train_orig)
 
     # calculate the anomaly for the train and test datasets by subtracting the training monthly mean from the original data
     gmb_train_anomaly = get_anomaly(gmb_train_orig, gmb_train_mean)
     gmb_test_anomaly = get_anomaly(gmb_test_orig, gmb_train_mean)
-    sd_train_anomaly = get_anomaly(sd_train_orig, sd_train_mean)
-    sd_test_anomaly = get_anomaly(sd_test_orig, sd_train_mean)
+    gcm_train_anomaly = get_anomaly(gcm_train_orig, gcm_train_mean)
+    gcm_test_anomaly = get_anomaly(gcm_test_orig, gcm_train_mean)
 
     # apply smoothing to the anomaly datasets using a rolling mean with a specified window size
     window_size = cfg.get(
@@ -624,12 +629,12 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     gmb_test_smooth.attrs["subset"] = "test"
     gmb_train_smooth.attrs["window_size"] = window_size
     gmb_test_smooth.attrs["window_size"] = window_size
-    sd_train_smooth = smooth_sd_data(sd_train_anomaly, window_size=window_size)
-    sd_test_smooth = smooth_sd_data(sd_test_anomaly, window_size=window_size)
-    sd_train_smooth.attrs["subset"] = "train"
-    sd_test_smooth.attrs["subset"] = "test"
-    sd_train_smooth.attrs["window_size"] = window_size
-    sd_test_smooth.attrs["window_size"] = window_size
+    gcm_train_smooth = smooth_gcm_data(gcm_train_anomaly, window_size=window_size)
+    gcm_test_smooth = smooth_gcm_data(gcm_test_anomaly, window_size=window_size)
+    gcm_train_smooth.attrs["subset"] = "train"
+    gcm_test_smooth.attrs["subset"] = "test"
+    gcm_train_smooth.attrs["window_size"] = window_size
+    gcm_test_smooth.attrs["window_size"] = window_size
 
     # save the processed datasets to .nc files, including the smoothed anomaly data as the main variable, and the original data and monthly mean as additional variables in the same dataset, and save the paths to the processed datasets in the config for reference
     logger.info("Saving processed datasets...")
@@ -657,27 +662,27 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     gmb_test_ds.close()  # close the dataset to free up memory
     cfg["gmb_test_processed"] = gmb_data_test_path.as_posix()
 
-    sd_train_ds = sd_train_smooth.to_dataset(name="SNODP")
-    sd_train_ds["monthly_raw"] = sd_train_orig
-    sd_train_ds["monthly_mean"] = sd_train_mean
-    sd_train_ds["anomaly"] = sd_train_anomaly
-    sd_train_ds.attrs["window_size"] = window_size
-    sd_data_train_path = PROCESSED_DATA_DIR / "sd_data" / "train" / "data.nc"
-    logger.info(f"Saving processed SD train dataset to {sd_data_train_path}...")
-    sd_train_ds.to_netcdf(sd_data_train_path, format="NETCDF4")
-    sd_train_ds.close()  # close the dataset to free up memory
-    cfg["sd_train_processed"] = sd_data_train_path.as_posix()
+    gcm_train_ds = gcm_train_smooth.to_dataset(name="GCM")
+    gcm_train_ds["monthly_raw"] = gcm_train_orig
+    gcm_train_ds["monthly_mean"] = gcm_train_mean
+    gcm_train_ds["anomaly"] = gcm_train_anomaly
+    gcm_train_ds.attrs["window_size"] = window_size
+    gcm_data_train_path = PROCESSED_DATA_DIR / "gcm_data" / "train" / "data.nc"
+    logger.info(f"Saving processed GCM train dataset to {gcm_data_train_path}...")
+    gcm_train_ds.to_netcdf(gcm_data_train_path, format="NETCDF4")
+    gcm_train_ds.close()  # close the dataset to free up memory
+    cfg["gcm_train_processed"] = gcm_data_train_path.as_posix()
 
-    # sd_test_ds = sd_test_smooth.to_dataset(name="SNODP")
-    sd_test_ds = sd_test_anomaly.to_dataset(name="SNODP")
-    sd_test_ds["monthly_raw"] = sd_test_orig
-    sd_test_ds["monthly_mean"] = sd_train_mean
-    sd_test_ds["anomaly"] = sd_test_anomaly
-    sd_data_test_path = PROCESSED_DATA_DIR / "sd_data" / "test" / "data.nc"
-    logger.info(f"Saving processed SD test dataset to {sd_data_test_path}...")
-    sd_test_ds.to_netcdf(sd_data_test_path, format="NETCDF4")
-    sd_test_ds.close()  # close the dataset to free up memory
-    cfg["sd_test_processed"] = sd_data_test_path.as_posix()
+    # gcm_test_ds = gcm_test_smooth.to_dataset(name="GCM")
+    gcm_test_ds = gcm_test_anomaly.to_dataset(name="GCM")
+    gcm_test_ds["monthly_raw"] = gcm_test_orig
+    gcm_test_ds["monthly_mean"] = gcm_train_mean
+    gcm_test_ds["anomaly"] = gcm_test_anomaly
+    gcm_data_test_path = PROCESSED_DATA_DIR / "gcm_data" / "test" / "data.nc"
+    logger.info(f"Saving processed GCM test dataset to {gcm_data_test_path}...")
+    gcm_test_ds.to_netcdf(gcm_data_test_path, format="NETCDF4")
+    gcm_test_ds.close()  # close the dataset to free up memory
+    cfg["gcm_test_processed"] = gcm_data_test_path.as_posix()
 
     # log statistics about the datasets, including the number of glaciers and time steps in the train and test sets, the shape of the snow depth datasets, and the cutoff month used for splitting, and save these statistics to a report
     results = {
@@ -685,8 +690,8 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         "gmb_test_glaciers": int(gmb_test_ds.sizes.get("rgi_id", 0)),
         "gmb_train_times": int(gmb_train_ds.sizes.get("time", 0)),
         "gmb_test_times": int(gmb_test_ds.sizes.get("time", 0)),
-        "sd_train_shape": tuple(sd_train_ds["SNODP"].shape),
-        "sd_test_shape": tuple(sd_test_ds["SNODP"].shape),
+        "gcm_train_shape": tuple(gcm_train_ds["GCM"].shape),
+        "gcm_test_shape": tuple(gcm_test_ds["GCM"].shape),
         "cutoff_month": str(cutoff_month),
     }
 

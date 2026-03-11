@@ -11,7 +11,7 @@ import typer
 import xarray as xr
 
 from gmb_modeling.dataset import (
-    get_sd_gridpoint,
+    get_gcm_gridpoint,
     load_coastline,
     load_regions,
 )
@@ -104,16 +104,19 @@ def plot_glacier_regions(save_path: Optional[Path] = None) -> None:
     plt.close(fig)
 
 
-def plot_sd(
+def plot_gcm(
     data_path: Path,
+    gcm_variable: str,
     month: str,
     region_ids: Optional[list] = None,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Plot snow depth in specified regions for a specified month
+    """Plot GCM data in specified regions for a specified month
 
-    :param data_path: Path to processed SD dataset containing "SNODP" variable with dimensions [time, lat, lon] and coordinates "time", "lat", and "lon"
+    :param data_path: Path to processed GCM dataset containing the specified variable with dimensions [time, lat, lon] and coordinates "time", "lat", and "lon"
     :type data_path: Path
+    :param gcm_variable: Variable name for the GCM data
+    :type gcm_variable: str
     :param month: Month to plot, can be in any format recognized by pandas (e.g. "2020-01", "Jan 2020", "January 2020", etc.)
     :type month: str
     :param region_ids: List of region IDs to plot, defaults to None (plots all regions)
@@ -136,15 +139,15 @@ def plot_sd(
     matches = np.where(time_vals == month_np)[0]
     if matches.size == 0:
         raise ValueError(f"Month {month} not found in dataset time coordinate.")
-    month_data = ds["SNODP"].isel(time=matches[0])
-    month_str = pd.to_datetime(month).strftime("%Y-%b")
-    sd_lat = ds["lat"].values
-    sd_lon = ds["lon"].values
+    month_data = ds[gcm_variable].isel(time=matches[0])
+    month_str = pd.to_datetime(month).strftime("%Y-%m")
+    gcm_lat = ds["lat"].values
+    gcm_lon = ds["lon"].values
 
     fig, ax = plt.subplots(figsize=(10, 8))
     pcm = ax.pcolormesh(
-        sd_lon,
-        sd_lat,
+        gcm_lon,
+        gcm_lat,
         month_data,
         cmap="coolwarm",
         shading="auto",
@@ -152,10 +155,10 @@ def plot_sd(
     )
     if region_ids is None:
         min_lat, min_lon, max_lat, max_lon = (
-            min(sd_lat),
-            min(sd_lon),
-            max(sd_lat),
-            max(sd_lon),
+            min(gcm_lat),
+            min(gcm_lon),
+            max(gcm_lat),
+            max(gcm_lon),
         )
     else:
         min_lat, min_lon, max_lat, max_lon = (np.inf, np.inf, -np.inf, -np.inf)
@@ -175,11 +178,11 @@ def plot_sd(
     ax.set_xlim((min_lon - 0.25, max_lon + 0.25))
     ax.set_ylim((min_lat - 0.25, max_lat + 0.25))
     fig.colorbar(pcm, ax=ax, label="Snow Depth (m)")
-    ax.set_title(f"MERRA-2 Snow Depth for month {month_str}")
+    ax.set_title(f"GCM Snow Depth for month {month_str}")
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     if save_path is not None:
-        save_name = save_path / f"sd_{month_str}.png"
+        save_name = save_path / f"gcm_{month_str}.png"
         fig.savefig(save_name, bbox_inches="tight", dpi=500)
     plt.close(fig)
 
@@ -217,7 +220,7 @@ def plot_gmb(
     if matches.size == 0:
         raise ValueError(f"Month {month} not found in dataset time coordinate.")
     month_data = ds["monthly_gmb"].isel(time=matches[0])
-    month_str = pd.to_datetime(month).strftime("%Y-%b")
+    month_str = pd.to_datetime(month).strftime("%Y-%m")
     gmb_lat = ds["lat"].values
     gmb_lon = ds["lon"].values
 
@@ -267,15 +270,15 @@ def plot_gmb(
     plt.close(fig)
 
 
-def plot_sd_anomaly(
+def plot_gcm_anomaly(
     data_path: Path,
     lat: float,
     lon: float,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Plot the original, monthly mean, and anomaly time series for a snow depth gridpoint
+    """Plot the original, monthly mean, and anomaly time series for a GCM gridpoint
 
-    :param data_path: Path to the processed snow depth data
+    :param data_path: Path to the processed GCM data
     :type data_path: Path
     :param lat: Latitude of the gridpoint to plot
     :type lat: float
@@ -287,7 +290,7 @@ def plot_sd_anomaly(
     # open dataset and subset to specified gridpoint and time slice
     with xr.open_dataset(data_path) as _ds_processed:
         ds_processed = _ds_processed.load()
-    ds_processed = get_sd_gridpoint(ds_processed, lat, lon)
+    ds_processed = get_gcm_gridpoint(ds_processed, lat, lon)
     months = ds_processed["time"].values.astype("datetime64[M]")
 
     latlon_str = f"[{lat:.2f}, {lon:.2f}]"
@@ -315,7 +318,7 @@ def plot_sd_anomaly(
     ax[2].set_title(f"Anomaly at {latlon_str}")
     ax[2].grid(True, axis="y")
 
-    ax[3].plot(months, ds_processed["SNODP"], color="blue")
+    ax[3].plot(months, ds_processed["GCM"], color="blue")
     ax[3].set_xlim((months[0], months[-1]))
     ax[3].set_xlabel("Time")
     ax[3].set_ylabel("Snow Depth [m]")
@@ -324,29 +327,29 @@ def plot_sd_anomaly(
 
     plt.tight_layout()
     if save_path is not None:
-        fname = save_path / f"sd_anomaly_{lat:.2f}_{lon:.2f}.png"
+        fname = save_path / f"gcm_anomaly_{lat:.2f}_{lon:.2f}.png"
         fig.savefig(fname, bbox_inches="tight", dpi=500)
 
         # save axes
         extent0 = full_extent(ax[0], padx=0.1, pady=0.1).transformed(
             fig.dpi_scale_trans.inverted()
         )
-        fname0 = save_path / f"sd_anomaly_{lat:.2f}_{lon:.2f}_raw.png"
+        fname0 = save_path / f"gcm_anomaly_{lat:.2f}_{lon:.2f}_raw.png"
         fig.savefig(fname0, bbox_inches=extent0, dpi=500)
         extent1 = full_extent(ax[1], padx=0.1, pady=0.1).transformed(
             fig.dpi_scale_trans.inverted()
         )
-        fname1 = save_path / f"sd_anomaly_{lat:.2f}_{lon:.2f}_seasonal.png"
+        fname1 = save_path / f"gcm_anomaly_{lat:.2f}_{lon:.2f}_seasonal.png"
         fig.savefig(fname1, bbox_inches=extent1, dpi=500)
         extent2 = full_extent(ax[2], padx=0.1, pady=0.1).transformed(
             fig.dpi_scale_trans.inverted()
         )
-        fname2 = save_path / f"sd_anomaly_{lat:.2f}_{lon:.2f}_anomaly.png"
+        fname2 = save_path / f"gcm_anomaly_{lat:.2f}_{lon:.2f}_anomaly.png"
         fig.savefig(fname2, bbox_inches=extent2, dpi=500)
         extent3 = full_extent(ax[3], padx=0.1, pady=0.1).transformed(
             fig.dpi_scale_trans.inverted()
         )
-        fname3 = save_path / f"sd_anomaly_{lat:.2f}_{lon:.2f}_smoothed.png"
+        fname3 = save_path / f"gcm_anomaly_{lat:.2f}_{lon:.2f}_smoothed.png"
         fig.savefig(fname3, bbox_inches=extent3, dpi=500)
     plt.close(fig)
 
@@ -436,6 +439,7 @@ def plot_gmb_anomaly(
 
 def plot_pca_variance(
     explained_variance: np.ndarray,
+    dataset: str,
     n_modes: Optional[int] = None,
     color="blue",
     save_path: Optional[Path] = None,
@@ -444,6 +448,8 @@ def plot_pca_variance(
 
     :param explained_variance: Array of variance explained by each PCA mode, typically obtained from the PCA model's explained_variance_ratio_ attribute
     :type explained_variance: numpy.ndarray
+    :param dataset: Name of the dataset (e.g. "MERRA", "GMB") to include in the plot title and filename
+    :type dataset: str
     :param n_modes: Number of PCA modes to plot, defaults to None
     :type n_modes: Optional[int], optional
     :param color: Color for the scatter plot, defaults to "blue"
@@ -465,7 +471,7 @@ def plot_pca_variance(
     ax.grid(True)
     plt.tight_layout()
     if save_path is not None:
-        fname = save_path / f"pca_variance_{n_modes}modes.png"
+        fname = save_path / f"pca_variance_{dataset}_{n_modes}modes.png"
         plt.savefig(fname, bbox_inches="tight", dpi=500)
     plt.close(fig)
 
@@ -549,9 +555,6 @@ def plot_pca_modes_gmb(
 
         # Plot Principal Component (time series)
         ax2 = axes[i, 1] if n_modes > 1 else axes[0, 1]
-        # Prepare compact time-position mapping: equal spacing inside consecutive
-        # month segments, with a small fixed gap between segments so points are
-        # not connected across missing-month gaps but horizontal space is compact.
         times_pd = pd.to_datetime(time)
         months_num = times_pd.year * 12 + times_pd.month
 
@@ -598,7 +601,7 @@ def plot_pca_modes_gmb(
         tick_idx = list(range(0, len(times_pd), step_tick))
         tick_pos = positions[tick_idx]
         tick_labels = [
-            f"{times_pd[idx].strftime('%b')}\n{times_pd[idx].strftime('%Y')}"
+            f"{times_pd[idx].strftime('%m')}\n{times_pd[idx].strftime('%Y')}"
             for idx in tick_idx
         ]
         ax2.set_xticks(tick_pos)
@@ -629,26 +632,26 @@ def plot_pca_modes_gmb(
     plt.close(fig)
 
 
-def plot_pca_modes_sd(
+def plot_pca_modes_gcm(
     eigvecs: np.ndarray,
     PCs: np.ndarray,
-    sd_lon: np.ndarray,
-    sd_lat: np.ndarray,
+    gcm_lon: np.ndarray,
+    gcm_lat: np.ndarray,
     time: np.ndarray,
     n_modes: Optional[int] = None,
     region_ids: Optional[list] = None,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Plot the spatial eigenvectors and temporal principal components for snow depth from PCA
+    """Plot the spatial eigenvectors and temporal principal components for GCM data from PCA
 
     :param eigvecs: Spatial eigenvectors [n_modes, n_gridpoints]
     :type eigvecs: numpy.ndarray
     :param PCs: Principal components [time, n_modes]
     :type PCs: numpy.ndarray
-    :param sd_lon: Longitude coordinates for snow depth data
-    :type sd_lon: numpy.ndarray
-    :param sd_lat: Latitude coordinates for snow depth data
-    :type sd_lat: numpy.ndarray
+    :param gcm_lon: Longitude coordinates for GCM data
+    :type gcm_lon: numpy.ndarray
+    :param gcm_lat: Latitude coordinates for GCM data
+    :type gcm_lat: numpy.ndarray
     :param time: Time coordinates for the principal components
     :type time: numpy.ndarray
     :param n_modes: Number of modes to plot, defaults to None
@@ -687,13 +690,16 @@ def plot_pca_modes_sd(
         max_lat = max(max_lat, maxy)
         max_lon = max(max_lon, maxx)
 
+    xlim = (min_lon - 0.1, max_lon + 0.1)
+    ylim = (min_lat - 0.1, max_lat + 0.1)
+
     for i in range(n_modes):
         # Plot spatial pattern (eigenvector)
         ax1 = axes[i, 0] if n_modes > 1 else axes[0, 0]
         pcm = ax1.pcolormesh(
-            sd_lon,
-            sd_lat,
-            eigvecs[i, :].reshape(len(sd_lat), len(sd_lon)),
+            gcm_lon,
+            gcm_lat,
+            eigvecs[i, :].reshape(len(gcm_lat), len(gcm_lon)),
             cmap="coolwarm",
             shading="auto",
             zorder=1,
@@ -707,12 +713,10 @@ def plot_pca_modes_sd(
         ax1.set_ylabel("Latitude")
         ax1.set_title(rf"Spatial Pattern (Eigenvector) Mode \#{i + 1}")
         plt.colorbar(pcm, ax=ax1, orientation="vertical", label="Eigenvector Value")
-        ax1.set_xlim((min(sd_lon) - 0.1, max(sd_lon) + 0.1))
-        ax1.set_ylim((min(sd_lat) - 0.1, max(sd_lat) + 0.1))
+        ax1.set_xlim(xlim)
+        ax1.set_ylim(ylim)
 
         # Plot Principal Component (time series) with compact spacing and
-        # no markers: equal spacing inside consecutive-month segments,
-        # small fixed gap between segments so segments are not connected.
         ax2 = axes[i, 1] if n_modes > 1 else axes[0, 1]
         times_pd = pd.to_datetime(time)
         months_num = times_pd.year * 12 + times_pd.month
@@ -754,7 +758,7 @@ def plot_pca_modes_sd(
         tick_idx = list(range(0, len(times_pd), step_tick))
         tick_pos = positions[tick_idx]
         tick_labels = [
-            f"{times_pd[idx].strftime('%b')}\n{times_pd[idx].strftime('%Y')}"
+            f"{times_pd[idx].strftime('%m')}\n{times_pd[idx].strftime('%Y')}"
             for idx in tick_idx
         ]
         ax2.set_xticks(tick_pos)
@@ -772,7 +776,7 @@ def plot_pca_modes_sd(
 
     plt.tight_layout()
     if save_path:
-        fname = save_path / f"pca_sd_{n_modes}modes.png"
+        fname = save_path / f"pca_gcm_{n_modes}modes.png"
         plt.savefig(fname, bbox_inches="tight", dpi=500)
 
         # save modes separately
@@ -780,7 +784,7 @@ def plot_pca_modes_sd(
             extent = full_extent(list(axes[i, :]), padx=0.1, pady=0.1).transformed(
                 fig.dpi_scale_trans.inverted()
             )
-            fname_mode = save_path / f"pca_sd_mode_{i + 1}.png"
+            fname_mode = save_path / f"pca_gcm_mode_{i + 1}.png"
             plt.savefig(fname_mode, bbox_inches=extent, dpi=500)
     plt.close(fig)
 
@@ -788,30 +792,48 @@ def plot_pca_modes_sd(
 def plot_cca_modes(
     U: np.ndarray,
     V: np.ndarray,
-    sd_eigvecs: np.ndarray,
+    gcm_eigvecs: np.ndarray,
     gmb_eigvecs: np.ndarray,
-    sd_lon: np.ndarray,
-    sd_lat: np.ndarray,
+    gcm_lon: np.ndarray,
+    gcm_lat: np.ndarray,
     gmb_lon: np.ndarray,
     gmb_lat: np.ndarray,
     time: np.ndarray,
     region_ids: Optional[list] = None,
     save_path: Optional[Path] = None,
 ) -> None:
-    """Plot the spatial eigenvectors of GMB and snow depth, as well as the temporal canonical variates from CCA
+    """Plot the spatial eigenvectors of GMB and GCM, as well as the temporal canonical variates from CCA
 
-    :param U: Canonical variates for the snow depth dataset [time, n_modes]
+    :param U: Canonical variates for the GCM dataset [time, n_modes]
     :type U: numpy.ndarray
     :param V: Canonical variates for the GMB dataset [time, n_modes]
     :type V: numpy.ndarray
-    :param sd_eigvecs: Spatial eigenvectors for the snow depth dataset [n_modes, n_gridpoints]
-    :type sd_eigvecs: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
     :param gmb_eigvecs: Spatial eigenvectors for the GMB dataset [n_modes, n_glaciers]
     :type gmb_eigvecs: numpy.ndarray
-    :param sd_lon: Longitudes for the snow depth dataset
-    :type sd_lon: numpy.ndarray
-    :param sd_lat: Latitudes for the snow depth dataset
-    :type sd_lat: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
+    :param gmb_eigvecs: Spatial eigenvectors for the GMB dataset [n_modes, n_glaciers]
+    :type gmb_eigvecs: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
+    :param gmb_eigvecs: Spatial eigenvectors for the GMB dataset [n_modes, n_glaciers]
+    :type gmb_eigvecs: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
+    :param gmb_eigvecs: Spatial eigenvectors for the GMB dataset [n_modes, n_glaciers]
+    :type gmb_eigvecs: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
+    :param gmb_eigvecs: Spatial eigenvectors for the GMB dataset [n_modes, n_glaciers]
+    :type gmb_eigvecs: numpy.ndarray
+    :param gcm_eigvecs: Spatial eigenvectors for the GCM dataset [n_modes, n_gridpoints]
+    :type gcm_eigvecs: numpy.ndarray
+    :param gcm_lon: Longitudes for the GCM dataset
+    :type gcm_lon: numpy.ndarray
+    :param gcm_lat: Latitudes for the GCM dataset
+    :type gcm_lat: numpy.ndarray
     :param gmb_lon: Longitudes for the GMB dataset
     :type gmb_lon: numpy.ndarray
     :param gmb_lat: Latitudes for the GMB dataset
@@ -828,7 +850,7 @@ def plot_cca_modes(
     coastLon = coastline.lon
     coastLat = coastline.lat
 
-    n_modes = min(len(sd_eigvecs), len(gmb_eigvecs))
+    n_modes = min(len(gcm_eigvecs), len(gmb_eigvecs))
 
     fig, axes = plt.subplots(n_modes, 3, figsize=(18, 4 * n_modes))
 
@@ -849,12 +871,12 @@ def plot_cca_modes(
     ylim = (min_lat - 0.1, max_lat + 0.1)
 
     for mi, mode in enumerate(range(n_modes)):
-        eig_map = sd_eigvecs[mode, :]
-        eig_map2d = eig_map.reshape((len(sd_lat), len(sd_lon)))
+        eig_map = gcm_eigvecs[mode, :]
+        eig_map2d = eig_map.reshape((len(gcm_lat), len(gcm_lon)))
         ax1 = axes[mi, 0] if n_modes > 1 else axes[0, 0]
         pcm = ax1.pcolormesh(
-            sd_lon,
-            sd_lat,
+            gcm_lon,
+            gcm_lat,
             eig_map2d,
             cmap="coolwarm",
             shading="auto",
@@ -866,8 +888,8 @@ def plot_cca_modes(
             )
         ax1.set_xlim(xlim)
         ax1.set_ylim(ylim)
-        ax1.set_title(rf"SD Eigenvector Mode \#{mode + 1}")
-        plt.colorbar(pcm, ax=ax1, orientation="vertical", label="SD eigenvector")
+        ax1.set_title(rf"GCM Eigenvector Mode \#{mode + 1}")
+        plt.colorbar(pcm, ax=ax1, orientation="vertical", label="GCM eigenvector")
 
         ax2 = axes[mi, 1] if n_modes > 1 else axes[0, 1]
         sc = ax2.scatter(
@@ -917,7 +939,7 @@ def plot_cca_modes(
             seg_u = U[s:e, mode]
             seg_v = V[s:e, mode]
             if len(seg_pos) > 1:
-                label_u = "U (SD)" if s == segs[0][0] else None
+                label_u = "U (MERRA)" if s == segs[0][0] else None
                 label_v = "V (GMB)" if s == segs[0][0] else None
                 ax3.plot(seg_pos, seg_u, "-", lw=1.5, color="b", label=label_u)
                 ax3.plot(seg_pos, seg_v, "-", lw=1.5, color="g", label=label_v)
@@ -941,7 +963,7 @@ def plot_cca_modes(
         tick_idx = list(range(0, len(times_pd), step_tick))
         tick_pos = positions[tick_idx]
         tick_labels = [
-            f"{times_pd[idx].strftime('%b')}\n{times_pd[idx].strftime('%Y')}"
+            f"{times_pd[idx].strftime('%m')}\n{times_pd[idx].strftime('%Y')}"
             for idx in tick_idx
         ]
         ax3.set_xticks(tick_pos)
@@ -994,9 +1016,6 @@ def compare_pred_test_glacier(
     test_time = gmb_pred["time"].values.astype("datetime64[M]")
     gmb_proc = gmb_proc.sel(time=test_time)
 
-    # Build compact x-position mapping: equal spacing within consecutive-month
-    # segments and a small fixed gap between segments so points remain evenly
-    # spaced but segments are not connected.
     times = pd.to_datetime(test_time)
     months_num = times.year * 12 + times.month
 
@@ -1021,14 +1040,12 @@ def compare_pred_test_glacier(
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    # Plot each consecutive segment as a line (no markers). For single-point
-    # segments draw a short horizontal tick so the value is visible.
     for si, (s, e) in enumerate(segs):
         seg_pos = positions[s:e]
         seg_proc = gmb_proc["monthly_gmb"].values[s:e]
         seg_pred = gmb_pred["monthly_gmb"].values[s:e]
         label_proc = "GMB Test Original" if si == 0 else None
-        label_pred = "GMB Test Reconstructed from SD" if si == 0 else None
+        label_pred = "GMB Test Reconstructed" if si == 0 else None
         if len(seg_pos) > 1:
             ax.plot(seg_pos, seg_proc, "-", color="black", label=label_proc)
             ax.plot(seg_pos, seg_pred, "-", color="green", label=label_pred)
@@ -1068,7 +1085,7 @@ def compare_pred_test_glacier(
     tick_idx = list(range(0, len(times), step))
     tick_pos = positions[tick_idx]
     tick_labels = [
-        f"{times[i].strftime('%b')}\n{times[i].strftime('%Y')}" for i in tick_idx
+        f"{times[i].strftime('%m')}\n{times[i].strftime('%Y')}" for i in tick_idx
     ]
     ax.set_xticks(tick_pos)
     ax.set_xticklabels(tick_labels, rotation=0, ha="center")
@@ -1126,7 +1143,7 @@ def compare_pred_test_month(
     gmb_pred_data = gmb_pred["monthly_gmb"].values
     gmb_diff = gmb_proc_data - gmb_pred_data
 
-    month_str = pd.to_datetime(month).strftime("%Y-%b")
+    month_str = pd.to_datetime(month).strftime("%Y-%m")
 
     regions = []
     xmin, ymin, xmax, ymax = (np.inf, np.inf, -np.inf, -np.inf)
@@ -1427,8 +1444,8 @@ def plot_total_error_density_by_month(
                 max(gmb_test_month["monthly_raw"].values.flatten()),
             ],
             [
-                min(gmb_pred_month["monthly_gmb"].T.values.flatten()),
-                max(gmb_pred_month["monthly_gmb"].T.values.flatten()),
+                min(gmb_test_month["monthly_raw"].values.flatten()),
+                max(gmb_test_month["monthly_raw"].values.flatten()),
             ],
             "r--",
             lw=1,
@@ -1483,6 +1500,185 @@ def plot_error_by_feature(
             fname = save_path / f"gmb_error_by_{feature}.png"
             plt.savefig(fname, bbox_inches="tight", dpi=500)
         plt.close(fig)
+
+
+def plot_histogram(
+    data: xr.Dataset,
+    rmses: np.ndarray,
+    bins: list,
+    bin_labels: list,
+    feature: str,
+    monthstr: str,
+    save_path: Optional[Path] = None,
+) -> None:
+    """Plot a histogram with pre-determined bins
+
+    :param data: Data array containing the feature values to bin (e.g. glacier area)
+    :type data: xarray.Dataset
+    :param rmses: Array of RMSE values corresponding to each data point
+    :type rmses: numpy.ndarray
+    :param bins: Array of bin edges for the feature values
+    :type bins: list
+    :param bin_labels: List of labels for each bin
+    :type bin_labels: list
+    :param feature: Name of the feature being plotted (e.g. "area", "zmed", "slope")
+    :type feature: str
+    :param monthstr: String to append to the filename for saving, can be empty if not needed
+    :type monthstr: str
+    :param save_path: Path to save the plot, defaults to None
+    :type save_path: Optional[Path], optional
+    """
+    bin_values = data.values
+    n_bins = len(bins) - 1
+    fig, axes = plt.subplots(1, n_bins, figsize=(5 * n_bins, 5), sharey=True)
+    cmap = plt.get_cmap("Dark2")
+    for i in range(n_bins):
+        bin_indices = np.where((bin_values >= bins[i]) & (bin_values < bins[i + 1]))[0]
+        rmse_area = rmses[bin_indices]
+        ax_i = axes[i] if n_bins > 1 else axes
+        ax_i.hist(rmse_area, bins=30, color=cmap(i), alpha=0.7)
+        ax_i.set_title(rf"${bin_labels[i]}$ km$^2$ (count: {len(rmse_area)})")
+        # ax_i.set_xlabel('RMSE')
+        if i == 0:
+            ax_i.set_ylabel("Frequency")
+        ax_i.set_yscale("log")
+        # vertical line at mean
+        mean_rmse = np.mean(rmse_area)
+        ax_i.axvline(mean_rmse, color="k", linestyle="dashed", linewidth=1)
+        ax_i.grid(True, axis="y", linestyle="-", linewidth=0.5)
+    # same x limits for all subplots
+    all_rmse = []
+    for i in range(n_bins):
+        bin_indices = np.where((bin_values >= bins[i]) & (bin_values < bins[i + 1]))[0]
+        rmse_area = rmses[bin_indices]
+        all_rmse.extend(rmse_area)
+    vmin = min(all_rmse)
+    vmax = max(all_rmse)
+    for i in range(n_bins):
+        ax_i = axes[i] if n_bins > 1 else axes
+        ax_i.set_xlim([vmin, vmax])
+    plt.suptitle(f"Histogram of RMSE by {feature.capitalize()}")
+    plt.tight_layout()
+    if save_path is not None:
+        fname = save_path / f"histogram_{feature}{monthstr}.png"
+        plt.savefig(fname, bbox_inches="tight", dpi=500)
+    plt.close(fig)
+
+
+def plot_feature_histograms(
+    gmb_test: xr.Dataset,
+    gmb_pred: xr.Dataset,
+    months: Union[str, list[str], int, list[int], None] = None,
+    save_path: Optional[Path] = None,
+) -> None:
+    """Plot histograms of glacier features (area, zmed, slope) for the test dataset
+
+    :param gmb_test: Test GMB data for all glaciers and months in the test dataset, including glacier features
+    :type gmb_test: xarray.Dataset
+    :param gmb_pred: Predicted GMB data for all glaciers and months in the test dataset
+    :type gmb_pred: xarray.Dataset
+    :param months: Specific month or list of month strings
+    :type months: Union[str, list[str], int, list[int], None], optional
+    :param save_path: Path to save the plot, defaults to None
+    :type save_path: Optional[Path], optional
+    """
+    monthstr = ""
+    if months is not None:
+        if isinstance(months, str):
+            if "-" in months:  # specific month is specified as "YYYY-MM"
+                month_dt = pd.to_datetime(months)
+                month_num = month_dt.month
+                monthstr = f"_{month_dt.strftime('%Y-%m')}"
+                gmb_test = gmb_test.sel(time=gmb_test["time.month"] == month_num)
+                gmb_pred = gmb_pred.sel(time=gmb_pred["time.month"] == month_num)
+            else:  # month is specified as a month name (e.g. "Jan", "January")
+                month_dt = pd.to_datetime(months, format="%b")
+                month_num = month_dt.month
+                monthstr = f"_{month_dt.strftime('%b')}"
+                gmb_test = gmb_test.sel(time=gmb_test["time.month"] == month_num)
+                gmb_pred = gmb_pred.sel(time=gmb_pred["time.month"] == month_num)
+        elif isinstance(months, int):  # month is specified as a month number (1-12)
+            month_num = months
+            monthstr = f"_{MONTHS[month_num - 1]}"
+            gmb_test = gmb_test.sel(time=gmb_test["time.month"] == month_num)
+            gmb_pred = gmb_pred.sel(time=gmb_pred["time.month"] == month_num)
+        elif isinstance(months, list):  # list of month strings or numbers
+            month_nums = []
+            monthstrs = []
+            for m in months:
+                if isinstance(m, str):
+                    # month is specified as a month name (e.g. "Jan", "January")
+                    month_dt = pd.to_datetime(m, format="%m")
+                    month_num = month_dt.month
+                    monthstrs.append(month_dt.strftime("%m"))
+                elif isinstance(m, int):  # month is specified as a month number (1-12)
+                    month_num = m
+                    monthstrs.append(MONTHS[month_num - 1])
+                else:
+                    raise ValueError(f"Invalid month format: {m}")
+                month_nums.append(month_num)
+            gmb_test = gmb_test.sel(time=gmb_test["time.month"].isin(month_nums))
+            gmb_pred = gmb_pred.sel(time=gmb_pred["time.month"].isin(month_nums))
+            monthstr = "_" + "-".join(monthstrs)
+
+    rmse_per_glacier = np.sqrt(
+        np.mean(
+            (gmb_test["monthly_gmb"].values - gmb_pred["monthly_gmb"].values.T) ** 2,
+            axis=1,
+        )
+    )
+
+    # area
+    area_bins = [0, 1, 10, 100, 1000]  # in km^2
+    area_labels = ["<1", "1-10", "10-100", "100-1000"]
+    plot_histogram(
+        gmb_test.area,
+        rmse_per_glacier,
+        area_bins,
+        area_labels,
+        "area",
+        monthstr,
+        save_path,
+    )
+
+    # slope
+    slope_bins = [0, 10, 20, 30, 40, 50]  # in degrees
+    slope_labels = ["0-10", "10-20", "20-30", "30-40", "40-50"]
+    plot_histogram(
+        gmb_test.slope,
+        rmse_per_glacier,
+        slope_bins,
+        slope_labels,
+        "slope",
+        monthstr,
+        save_path,
+    )
+
+    # aspect
+    aspect_bins = [-45, 45, 135, 225, 315]  # in degrees
+    aspect_labels = ["North", "East", "South", "West"]
+    plot_histogram(
+        gmb_test.aspect,
+        rmse_per_glacier,
+        aspect_bins,
+        aspect_labels,
+        "aspect",
+        monthstr,
+        save_path,
+    )
+
+    # median elevation
+    elev_bins = [0, 1500, 2000, 2500, 100000]  # in meters
+    elev_labels = ["0-1500", "1500-2000", "2000-2500", ">2500"]
+    plot_histogram(
+        gmb_test.zmed,
+        rmse_per_glacier,
+        elev_bins,
+        elev_labels,
+        "zmed",
+        monthstr,
+        save_path,
+    )
 
 
 @app.command()

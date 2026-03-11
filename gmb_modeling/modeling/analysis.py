@@ -131,7 +131,7 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         processed_ds, predicted_ds, save_path=figures_dir
     )
     plots.plot_error_by_feature(processed_ds, predicted_ds, save_path=figures_dir)
-    # plots.plot_error_by_month(processed_ds, predicted_ds)
+    plots.plot_feature_histograms(processed_ds, predicted_ds, save_path=figures_dir)
 
     # record test performance metrics in report and save JSON copy
     results = {
@@ -146,3 +146,6 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
 
 if __name__ == "__main__":
     app()
+
+    # processed_data_path = Path("C:/Users/jrenr/OneDrive - UBC/Documents/UBC/Research/Projects/gmb_modeling/data/processed/gmb_data/test/data.nc")
+    # predicted_data_path = Path("predicted/gmb_test_predictions.nc")

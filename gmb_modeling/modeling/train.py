@@ -11,11 +11,11 @@ import typer
 import xarray as xr
 
 from gmb_modeling.config import MODELS_DIR
-from gmb_modeling.dataset import get_gmb_region, get_sd_region
+from gmb_modeling.dataset import get_gcm_region, get_gmb_region
 from gmb_modeling.plots import (
     plot_cca_modes,
+    plot_pca_modes_gcm,
     plot_pca_modes_gmb,
-    plot_pca_modes_sd,
     plot_pca_variance,
 )
 
@@ -114,6 +114,7 @@ def fit_pca_gmb(
     n_modes = len(gmb_explained_variance)
     plot_pca_variance(
         gmb_explained_variance,
+        "GMB",
         n_modes=n_modes,
     )
 
@@ -146,7 +147,7 @@ def fit_pca_gmb(
     return pca_outpath
 
 
-def fit_pca_sd(
+def fit_pca_gcm(
     data_path: Path,
     min_var: float = 0.9,
     months: Optional[list[int]] = None,
@@ -154,9 +155,9 @@ def fit_pca_sd(
     out_dir: Optional[Path] = None,
     figures_dir: Optional[Path] = None,
 ) -> Path:
-    """Fit a PCA model for Snow Depth data
+    """Fit a PCA model for GCM data
 
-    :param data_path: Path to the processed SD training data (netCDF file)
+    :param data_path: Path to the processed GCM training data (netCDF file)
     :type data_path: Path
     :param min_var: Minimum variance to retain in the PCA, defaults to 0.9
     :type min_var: float, optional
@@ -181,69 +182,74 @@ def fit_pca_sd(
         month_str = f"_{months[0]:02d}-{months[-1]:02d}"
     region_str = ""
     if region_ids is not None:
-        data = get_sd_region(data, region_ids)
+        data = get_gcm_region(data, region_ids)
         region_str = (
             f"_{'-'.join(region_ids) if isinstance(region_ids, list) else region_ids}"
         )
 
     # reshape data to [n_samples, n_features] for PCA (samples are time steps, features are spatial points)
-    sd_data = data["SNODP"].values
-    logger.info(f"Fitting SD PCA - initial shape: {sd_data.shape}")
-    sd_data = np.swapaxes(
-        np.reshape(sd_data, (sd_data.shape[0], np.prod(sd_data.shape[1:]))), 0, 1
+    gcm_data = data["GCM"].values
+    logger.info(f"Fitting GCM PCA - initial shape: {gcm_data.shape}")
+    gcm_data = np.swapaxes(
+        np.reshape(gcm_data, (gcm_data.shape[0], np.prod(gcm_data.shape[1:]))),
+        0,
+        1,
     ).T.astype(np.float64)
 
     # fit PCA and find number of modes to reach minimum variance explained, then refit with that number of modes to reduce noise in modes and PCs
-    pca_sd_train, sd_PCs_train, sd_eigvecs, sd_explained_variance = fit_pca(
-        sd_data,
+    pca_gcm_train, gcm_PCs_train, gcm_eigvecs, gcm_explained_variance = fit_pca(
+        gcm_data,
         min_var,
     )
 
     # plot explained variance and PCA modes
-    n_modes = len(sd_explained_variance)
+    n_modes = len(gcm_explained_variance)
     plot_pca_variance(
-        sd_explained_variance,
+        gcm_explained_variance,
+        "GCM",
         n_modes=n_modes,
     )
 
     # refit PCA with selected number of modes to reduce noise in modes and PCs, and plot spatial patterns of selected modes
-    pca_sd_train, sd_PCs_train, sd_eigvecs, sd_explained_variance = fit_pca(
-        sd_data, min_var, n_modes=n_modes, refit=True
+    pca_gcm_train, gcm_PCs_train, gcm_eigvecs, gcm_explained_variance = fit_pca(
+        gcm_data, min_var, n_modes=n_modes, refit=True
     )
 
     # plot PCA modes on map
-    plot_pca_modes_sd(
-        sd_eigvecs,
-        sd_PCs_train,
+    region_ids_list = [region_ids] if isinstance(region_ids, (str, int)) else region_ids
+    plot_pca_modes_gcm(
+        gcm_eigvecs,
+        gcm_PCs_train,
         data["lon"].values,
         data["lat"].values,
         data["time"].values,
         n_modes=n_modes,
+        region_ids=region_ids_list,
         save_path=figures_dir,
     )
 
     # save PCA model, selected PCs, and eigenvectors to a pickle file in the output directory (workflow directory if available, otherwise MODELS_DIR)
     base = Path(out_dir) if out_dir is not None else MODELS_DIR
     base.mkdir(parents=True, exist_ok=True)
-    pca_outpath = base / f"pca_sd_train{month_str}{region_str}.pkl"
-    logger.info(f"Saving SD PCA model to {pca_outpath}...")
+    pca_outpath = base / f"pca_gcm_train{month_str}{region_str}.pkl"
+    logger.info(f"Saving GCM PCA model to {pca_outpath}...")
     with open(pca_outpath, "wb") as f:
-        pickle.dump((pca_sd_train, sd_PCs_train, sd_eigvecs), f)
+        pickle.dump((pca_gcm_train, gcm_PCs_train, gcm_eigvecs), f)
 
     return pca_outpath
 
 
 def fit_cca(
-    sd_PCs,
+    gcm_PCs,
     gmb_PCs,
     months: Optional[list[int]] = None,
     region_ids: Optional[Union[str, int, list]] = None,
     out_dir: Optional[Path] = None,
 ) -> Path:
-    """Fit a CCA model to find correlations between GMB and SD Principal Components (PCs)
+    """Fit a CCA model to find correlations between GMB and GCM Principal Components (PCs)
 
-    :param sd_PCs: Principal components of the SD data, shape [n_samples, n_sd_modes]
-    :type sd_PCs: numpy.ndarray
+    :param gcm_PCs: Principal components of the GCM data, shape [n_samples, n_gcm_modes]
+    :type gcm_PCs: numpy.ndarray
     :param gmb_PCs: Principal components of the GMB data, shape [n_samples, n_gmb_modes]
     :type gmb_PCs: numpy.ndarray
     :param months: List of months to include in the analysis, defaults to None
@@ -255,13 +261,13 @@ def fit_cca(
     :return: Path to the saved CCA model
     :rtype: Path
     """
-    logger.info("Fitting CCA between SD and GMB PCs...")
+    logger.info("Fitting CCA between GCM and GMB PCs...")
     n_modes = min(
-        sd_PCs.shape[1], gmb_PCs.shape[1]
+        gcm_PCs.shape[1], gmb_PCs.shape[1]
     )  # number of modes is limited by smaller set of PCs
     # fit CCA model and calculate canonical correlations, weights, and loadings
     cca = CCA(n_components=n_modes)
-    U, V = cca.fit_transform(sd_PCs, gmb_PCs)
+    U, V = cca.fit_transform(gcm_PCs, gmb_PCs)
 
     # normalize canonical variates to have unit variance for interpretability of canonical correlations and loadings
     normx = np.empty_like(U[0, :])
@@ -276,8 +282,8 @@ def fit_cca(
     A = cca.x_weights_
     B = cca.y_weights_
     # Canonical loadings
-    F = np.cov(sd_PCs.T) @ A  # shape: [n_modes, n_modes]
-    G = np.cov(gmb_PCs.T) @ B
+    F = np.cov(gcm_PCs.T) @ A  # shape: [n_modes, n_modes]
+    G = np.cov(gmb_PCs.T) @ B  # shape: [n_modes, n_modes]
     # Correlation for each mode
     R = [np.corrcoef(U[:, ii], V[:, ii])[0, 1] for ii in range(n_modes)]
 
@@ -296,7 +302,7 @@ def fit_cca(
         )
     base = Path(out_dir) if out_dir is not None else MODELS_DIR
     base.mkdir(parents=True, exist_ok=True)
-    cca_outpath = base / f"cca_sd_gmb_train_{month_str}_{region_str}.pkl"
+    cca_outpath = base / f"cca_gcm_gmb_train_{month_str}_{region_str}.pkl"
     logger.info(f"Saving CCA model to {cca_outpath}...")
     with open(cca_outpath, "wb") as f:
         pickle.dump((cca, U, V, R, A, B, F, G), f)
@@ -306,7 +312,7 @@ def fit_cca(
 
 @app.command()
 def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
-    """Fit PCA models for GMB and SD training data, and a CCA model to find correlations between GMB and SD PCs. Save fitted models and results to output directory (workflow directory if available, otherwise MODELS_DIR).
+    """Fit PCA models for GMB and GCM training data, and a CCA model to find correlations between GMB and GCM PCs. Save fitted models and results to output directory (workflow directory if available, otherwise MODELS_DIR).
 
     :param cfg: Configuration for training, either as a path to a JSON config file or a dictionary. Should include keys for "months", "region_ids", "pca_min_var", and paths for processed training data.
     :type cfg: Union[Path, dict]
@@ -342,7 +348,7 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
             "SRM",
         ]
 
-    # fit PCA models for GMB and SD training data
+    # fit PCA models for GMB and GCM training data
     workflow_dir = Path(cfg.get("workflow_dir"))  # type: ignore
     figures_dir = Path(cfg.get("figures_dir"))  # type: ignore
     gmb_processed_data_path = Path(cfg.get("gmb_train_processed"))  # type: ignore
@@ -354,9 +360,9 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         out_dir=workflow_dir,
         figures_dir=figures_dir,
     )
-    sd_processed_data_path = Path(cfg.get("sd_train_processed"))  # type: ignore
-    sd_pca_path = fit_pca_sd(
-        sd_processed_data_path,
+    gcm_processed_data_path = Path(cfg.get("gcm_train_processed"))  # type: ignore
+    gcm_pca_path = fit_pca_gcm(
+        gcm_processed_data_path,
         months=months,
         region_ids=region_ids,
         min_var=pca_min_var,
@@ -364,11 +370,11 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         figures_dir=figures_dir,
     )
     cfg["pca_gmb_path"] = str(gmb_pca_path)
-    cfg["pca_sd_path"] = str(sd_pca_path)
+    cfg["pca_gcm_path"] = str(gcm_pca_path)
     with open(gmb_pca_path, "rb") as f:
         pca_gmb_train, gmb_PCs_train, gmb_eigvecs = pickle.load(f)
-    with open(sd_pca_path, "rb") as f:
-        pca_sd_train, sd_PCs_train, sd_eigvecs = pickle.load(f)
+    with open(gcm_pca_path, "rb") as f:
+        pca_gcm_train, gcm_PCs_train, gcm_eigvecs = pickle.load(f)
 
     # record PCA information for report
     gmb_explained_variance = getattr(pca_gmb_train, "explained_variance_ratio_", [])
@@ -376,15 +382,15 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
         "n_components": int(getattr(pca_gmb_train, "n_components_", None) or 0),
         "explained_variance": list(gmb_explained_variance),
     }
-    sd_explained_variance = getattr(pca_sd_train, "explained_variance_ratio_", [])
-    pca_info_sd = {
-        "n_components": int(getattr(pca_sd_train, "n_components_", None) or 0),
-        "explained_variance": list(sd_explained_variance),
+    gcm_explained_variance = getattr(pca_gcm_train, "explained_variance_ratio_", [])
+    pca_info_gcm = {
+        "n_components": int(getattr(pca_gcm_train, "n_components_", None) or 0),
+        "explained_variance": list(gcm_explained_variance),
     }
 
-    # fit CCA model to find correlations between GMB and SD PCs
+    # fit CCA model to find correlations between GMB and GCM PCs
     cca_path = fit_cca(
-        sd_PCs_train,
+        gcm_PCs_train,
         gmb_PCs_train,
         months=months,
         region_ids=region_ids,
@@ -406,19 +412,19 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     }
 
     # plot CCA modes on map
-    processed_data_sd_train_path = cfg.get("sd_train_processed")
-    assert processed_data_sd_train_path is not None, (
-        "Processed SD training data path not found in config"
+    processed_data_gcm_train_path = cfg.get("gcm_train_processed")
+    assert processed_data_gcm_train_path is not None, (
+        "Processed GCM training data path not found in config"
     )
-    with xr.open_dataset(processed_data_sd_train_path) as _sd:
-        sd_data = _sd.load()
+    with xr.open_dataset(processed_data_gcm_train_path) as _gcm:
+        gcm_data = _gcm.load()
     if months is not None:
-        sd_data = sd_data.sel(time=sd_data["time.month"].isin(months))
-    sd_data = get_sd_region(sd_data, region_ids)
-    sd_lon = sd_data["lon"].values
-    sd_lat = sd_data["lat"].values
+        gcm_data = gcm_data.sel(time=gcm_data["time.month"].isin(months))
+    gcm_data = get_gcm_region(gcm_data, region_ids)
+    gcm_lon = gcm_data["lon"].values
+    gcm_lat = gcm_data["lat"].values
 
-    train_time = sd_data["time"].values
+    train_time = gcm_data["time"].values
 
     processed_data_gmb_train_path = cfg.get("gmb_train_processed")
     assert processed_data_gmb_train_path is not None, (
@@ -435,10 +441,10 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     plot_cca_modes(
         U,
         V,
-        sd_eigvecs,
+        gcm_eigvecs,
         gmb_eigvecs,
-        sd_lon,
-        sd_lat,
+        gcm_lon,
+        gcm_lat,
         gmb_lon,
         gmb_lat,
         train_time,
@@ -447,7 +453,7 @@ def main(cfg: Union[Path, dict]) -> tuple[dict, dict]:
     )
 
     # compile results to return
-    results = {"pca_gmb": pca_info_gmb, "pca_sd": pca_info_sd, "cca": cca_info}
+    results = {"pca_gmb": pca_info_gmb, "pca_gcm": pca_info_gcm, "cca": cca_info}
 
     return cfg, results
 

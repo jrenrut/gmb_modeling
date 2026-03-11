@@ -10,33 +10,33 @@ from sklearn.decomposition import PCA
 import typer
 import xarray as xr
 
-from gmb_modeling.dataset import get_gmb_region, get_sd_region, remove_anomaly
+from gmb_modeling.dataset import get_gcm_region, get_gmb_region, remove_anomaly
 
 app = typer.Typer()
 
 
 def cca_pseudoproxy(
-    sd_pca: PCA,
+    gcm_pca: PCA,
     gmb_pca: PCA,
     cca: CCA,
-    sd_test_data: np.ndarray,
+    gcm_test_data: np.ndarray,
     gmb_monthly_mean: xr.DataArray,
     time_coords: np.ndarray,
     rgi_coords: np.ndarray,
 ) -> xr.DataArray:
-    """Use the CCA pseudoproxy method to predict the unseen GMB PCs from new SD PCs
+    """Use the CCA pseudoproxy method to predict the unseen GMB PCs from new GCM PCs
 
-    :param sd_pca: PCA object fitted on the SD training data
-    :type sd_pca: sklearn.decomposition.PCA
+    :param gcm_pca: PCA object fitted on the GCM training data
+    :type gcm_pca: sklearn.decomposition.PCA
     :param gmb_pca: PCA object fitted on the GMB training data
     :type gmb_pca: sklearn.decomposition.PCA
     :param cca: CCA object fitted on the training data
     :type cca: sklearn.cross_decomposition.CCA
-    :param sd_test_data: Test data for SD, should be in the same format as the training data used to fit the PCA and CCA models (e.g. [time, lat, lon] or [time, features])
-    :type sd_test_data: np.ndarray
+    :param gcm_test_data: Test data for GCM, should be in the same format as the training data used to fit the PCA and CCA models (e.g. [time, lat, lon] or [time, features])
+    :type gcm_test_data: np.ndarray
     :param gmb_monthly_mean: Monthly mean GMB values used for anomaly removal, should be in the same format as the GMB training data monthly mean (e.g. [rgi_id] or [lat, lon])
     :type gmb_monthly_mean: xr.DataArray
-    :param time_coords: Time coordinates corresponding to the SD test data, used for constructing the output xarray DataArray with correct time dimension
+    :param time_coords: Time coordinates corresponding to the GCM test data, used for constructing the output xarray DataArray with correct time dimension
     :type time_coords: np.ndarray
     :param rgi_coords: RGI coordinates corresponding to the GMB test data, used for constructing the output xarray DataArray with correct RGI dimension
     :type rgi_coords: np.ndarray
@@ -45,14 +45,14 @@ def cca_pseudoproxy(
     """
     logger.info("Performing CCA pseudoproxy prediction...")
     # reshape test data if needed to ensure it's in the format [time, features] for PCA transformation
-    if sd_test_data.shape[0] != len(time_coords):
-        sd_test_data = np.moveaxis(sd_test_data, -1, 0)
-    sd_test_data = sd_test_data.reshape(sd_test_data.shape[0], -1)
+    if gcm_test_data.shape[0] != len(time_coords):
+        gcm_test_data = np.moveaxis(gcm_test_data, -1, 0)
+    gcm_test_data = gcm_test_data.reshape(gcm_test_data.shape[0], -1)
 
-    # transform SD test data to PCs using the fitted SD PCA model
-    sd_PCs_test = sd_pca.transform(sd_test_data)  # shape: [time, n_modes]
-    # predict GMB PCs from SD PCs using the fitted CCA model
-    gmb_CCA_pred = cca.predict(sd_PCs_test)  # shape: [time, n_modes]
+    # transform GCM test data to PCs using the fitted GCM PCA model
+    gcm_PCs_test = gcm_pca.transform(gcm_test_data)  # shape: [time, n_modes]
+    # predict GMB PCs from GCM PCs using the fitted CCA model
+    gmb_CCA_pred = cca.predict(gcm_PCs_test)  # shape: [time, n_modes]
     # inverse transform predicted GMB PCs back to original space using the fitted GMB PCA model
     gmb_pred_data = gmb_pca.inverse_transform(gmb_CCA_pred)  # shape: [time, n_features]
     gmb_pred_data = xr.DataArray(
@@ -113,22 +113,22 @@ def main(cfg: Union[Path, dict]) -> dict:
         f"_{'-'.join(region_ids) if isinstance(region_ids, list) else region_ids}"
     )
 
-    # load test data for SD and GMB, subset to specified months and regions
-    processed_data_sd_test_path = cfg.get("sd_test_processed")
+    # load test data for GCM and GMB, subset to specified months and regions
+    processed_data_gcm_test_path = cfg.get("gcm_test_processed")
     processed_data_gmb_test_path = cfg.get("gmb_test_processed")
-    assert processed_data_sd_test_path is not None, (
-        "Processed SD test data path not found in config"
+    assert processed_data_gcm_test_path is not None, (
+        "Processed GCM test data path not found in config"
     )
     assert processed_data_gmb_test_path is not None, (
         "Processed GMB test data path not found in config"
     )
-    with xr.open_dataset(processed_data_sd_test_path) as _sd:
-        sd_ds = _sd.load()
+    with xr.open_dataset(processed_data_gcm_test_path) as _gcm:
+        gcm_ds = _gcm.load()
     if months is not None:
-        sd_ds = sd_ds.sel(time=sd_ds["time.month"].isin(months))
-    sd_ds = get_sd_region(sd_ds, region_ids)
-    sd_data = sd_ds["SNODP"].values
-    sd_time = sd_ds["time"].values
+        gcm_ds = gcm_ds.sel(time=gcm_ds["time.month"].isin(months))
+    gcm_ds = get_gcm_region(gcm_ds, region_ids)
+    gcm_data = gcm_ds["GCM"].values
+    gcm_time = gcm_ds["time"].values
     with xr.open_dataset(processed_data_gmb_test_path) as _gmb:
         gmb_ds = _gmb.load()
     if months is not None:
@@ -139,19 +139,19 @@ def main(cfg: Union[Path, dict]) -> dict:
 
     # load fitted PCA and CCA models from training step
     gmb_pca_path = Path(cfg.get("pca_gmb_path"))  # type: ignore
-    sd_pca_path = Path(cfg.get("pca_sd_path"))  # type: ignore
+    gcm_pca_path = Path(cfg.get("pca_gcm_path"))  # type: ignore
     with open(gmb_pca_path, "rb") as f:
         pca_gmb, gmb_PCs_train, gmb_eigvecs = pickle.load(f)
-    with open(sd_pca_path, "rb") as f:
-        pca_sd, sd_PCs_train, sd_eigvecs = pickle.load(f)
+    with open(gcm_pca_path, "rb") as f:
+        pca_gcm, gcm_PCs_train, gcm_eigvecs = pickle.load(f)
     cca_path = Path(cfg.get("cca_path"))  # type: ignore
     cfg["cca_path"] = str(cca_path)
     with open(cca_path, "rb") as f:
         cca, U, V, R, A, B, F, G = pickle.load(f)
 
-    # perform CCA pseudoproxy prediction to get predicted GMB values for the test period based on the SD test data and the fitted PCA and CCA models
+    # perform CCA pseudoproxy prediction to get predicted GMB values for the test period based on the GCM test data and the fitted PCA and CCA models
     gmb_pred_data = cca_pseudoproxy(
-        pca_sd, pca_gmb, cca, sd_data, gmb_monthly_mean, sd_time, gmb_rgi
+        pca_gcm, pca_gmb, cca, gcm_data, gmb_monthly_mean, gcm_time, gmb_rgi
     )
 
     # save predictions into the workflow's predicted directory when possible
