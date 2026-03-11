@@ -16,4 +16,5 @@ shapely>=2.0.5
 plotly
 netCDF4
 dask
+jsonschema
 -e .

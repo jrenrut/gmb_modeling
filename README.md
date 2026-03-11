@@ -59,3 +59,24 @@ Exploring dynamic downscaling of climate models and correlating regional snow va
 
 --------
 
+## MERRA-2 Data Download Instructions
+
+*You will need a free [NASA Earthdata](https://forum.earthdata.nasa.gov/) account, and authentication stored in a cookie file like ~/.netrc or ~/.usr-cookies*
+
+Data accessed through [NASA GES DISC](https://disc.gsfc.nasa.gov/datasets?page=1&subject=Snow%2FIce&project=MERRA-2) - MERRA-2 filtered for "Snow/Ice" subjects.
+
+I have used the monthly mean [Land Ice Surface Diagnostics](https://disc.gsfc.nasa.gov/datasets/M2TMNXGLC_5.12.4/summary) dataset.
+
+Click on "Subset / Get Data" on the right.
+
+Download method: "Get File Subsets using OPeNDAP".
+
+British Columbia lat/lon bounds: -139.06,48.3,-114.03,60.
+
+Select variables and then click "Get Data".
+
+The service will select all the chips with your data and create separate download links. Click "Download Links List" - it will be a .txt file. Put this in "./data/raw/merra_download_links/"
+
+Now run `python data/raw/merra_download_links/download_merra.py --links <path-to-download-links.txt> --cookies <path-to-cookies> --name <name-of-subset>`
+
+There will be a new directory in "./data/raw/" with the `--name` argument, containing a combined .nc dataset file.
